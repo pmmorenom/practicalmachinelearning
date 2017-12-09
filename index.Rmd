@@ -1,0 +1,82 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Pedro Manuel Moreno Marcos"
+date: "9 de diciembre de 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(randomForest)
+```
+## Instructions
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+## Introduction
+This document will present the process for doing the project with the code used to do it step by step. However, the repository will also contain a R script to be able to run all lines at a time.
+
+## Reading data
+The first step of the analysis was reading both train and test files. This step was done with `read.csv`, although there is an important particularity. Code includes many empty lines, missing values (NA) or values with **#DIV/0**. To consider all of them as missing values, the option `na.strings` was used. The code for doing that is as follows:
+
+```{r}
+training <- read.csv('./pml-training.csv', header=TRUE, na.strings=c("NA","#DIV/0",""))
+testing <- read.csv('./pml-testing.csv', header=TRUE, na.strings=c("NA","#DIV/0",""))
+```
+
+## Preprocessing: Feature selection
+Once train and test set are loaded, the next step has been selecting the variables. The initial approach, which produced good results, was excluding those variables with more than 50% of missing values. The code to do that is:
+```{r training}
+na_count <-sapply(training, function(y) sum(length(which(is.na(y)))))
+training2 = training[na_count < dim(training)[1]*0.5]
+```
+
+## Data partitioning
+After the feature selection, training data had 60 variables (59 plus the output). The next step was splitting the training set into training and test to validate the model. This is very important because although we have a **test** set, we cannot use it to validate as we do not have the labels. The new training set will contain the 60% of the samples, while the rest will be in the test set. Then, we will also split the training set when doing cross-validation to validate the model. The code to do that is:
+```{r training2}
+inTrain = createDataPartition(training2$classe, p = 0.6)[[1]]
+tr = training2[ inTrain,]
+val = training2[-inTrain,]
+```
+
+## Imputing values
+In the previous steps, we excluded variables with more than 50% of missing values, but the remaining features could contain up to 50% missing values. Therefore, it was needed to take an action with those values. The approach taken here has been imputing the missing values with **knnImpute**. After doing that, we created a new variable **tr2** with the imputed value. We also excluded some of the initial columns as it was found that timestamps had a very high correlation with the outcome and if we used them, we could achieve high accuracies with training data (and even with test data in this example), but we may suffer from overfitting in other cases. The code for this part is:
+```{r tr}
+preObj <- preProcess(tr[,-dim(tr)[2]],method="knnImpute")
+tr2 <- predict(preObj, tr[,-dim(tr)[2]])
+tr2 = data.frame(tr2[,8:59], classe=tr$classe)
+```
+
+## Cross-Validation
+In this step, we applied 10-fold cross validation with training data. Results show about 0.6% of error, which means that the accuracy was over 0.99, which sounds reasonable.
+```{r tr2}
+train_control <- trainControl(method="cv", number=10)
+modFit <- randomForest(classe ~ ., data=tr2, trainControl=train_control)
+modFit
+```
+## Validation
+Before predicting the real outcomes for this exercise, we used the previous partition of 40% to check if the accuracy obtained in cross-validation is real or there are problems with overfitting. In this case, we obtained an accuracy over 0.99, which is very good and entails that the model behaves correctly with new data, so it should work also with the 20 samples of the exercise and the sample error should be below 0.01.
+```{r val, r modFit}
+val2 <- predict(preObj, val[,-dim(val)[2]])
+val2 = data.frame(val2[,8:59], classe=val$classe)
+predVal = predict(modFit, val2)
+confusionMatrix(val$classe, predVal)
+```
+
+Regarding the variables, we can also discover which of them were more representative with **VarImpPlot** function. This shows that ``roll_belt``, ``yaw_belt`` and ``magnet_dumbbell_z`` were the most important variables in the model.
+```{r modFit}
+varImpPlot(modFit)
+```
+
+## Prediction of new data
+After validating the model, we finally obtained the value of the 20 samples of the test file. The code for doing that and the 20 values are:
+```{r testing, r modFit}
+testing2 = testing[na_count < dim(training)[1]*0.5]
+testing2 = predict(preObj, testing2[,-dim(tr)[2]])
+output = predict(modFit, testing2[,8:59])
+output
+```
+
